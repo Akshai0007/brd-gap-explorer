@@ -85,9 +85,9 @@ function draw(){
   const ax=A[0]<B[0]?A[0]+A[2]:A[0],bx=A[0]<B[0]?B[0]:B[0]+B[2];
   h+=`<path class="edge ${hl?"hl":""}" d="M${ax} ${A[1]+A[3]/2} C${(ax+bx)/2} ${A[1]+A[3]/2},${(ax+bx)/2} ${B[1]+B[3]/2},${bx} ${B[1]+B[3]/2}"/>`;});
  // edges between requirement and clause point right-to-left; fix by drawing clause->req
- cl.forEach(c=>{const A=pos[c];h+=`<g class="n ${sel==c?"sel":""}" data-id="${c}"><rect x="${A[0]}" y="${A[1]}" width="${A[2]}" height="${A[3]}" rx="6" fill="var(--cl)"/><text x="${A[0]+30}" y="${A[1]+19}" text-anchor="middle">${c}</text></g>`});
+ cl.forEach(c=>{const A=pos[c];h+=`<g class="n ${sel==c?"sel":""}" data-id="${c}"><rect x="${A[0]}" y="${A[1]}" width="${A[2]}" height="${A[3]}" rx="6" fill="var(--cl)"/><text x="${A[0]+30}" y="${A[1]+19}" text-anchor="middle" style="fill:#1c2733">${c}</text></g>`});
  rq.forEach(r=>{const A=pos[r];h+=`<g class="n ${sel==r?"sel":""}" data-id="${r}"><rect x="${A[0]}" y="${A[1]}" width="${A[2]}" height="${A[3]}" rx="6" fill="${col[status(r)]}"/><text x="${A[0]+35}" y="${A[1]+18}" text-anchor="middle" style="fill:#fff;font-weight:600">${r}</text></g>`});
- dp.forEach(d=>{const A=pos[d],g=RQ[DEP[d][1]][3];h+=`<g class="n ${sel==d?"sel":""}" data-id="${d}"><rect x="${A[0]}" y="${A[1]}" width="${A[2]}" height="${A[3]}" rx="6" fill="${g?"#ffd9bf":"#d3ecd9"}"/><text x="${A[0]+85}" y="${A[1]+21}" text-anchor="middle">${DEP[d][0]}</text></g>`});
+ dp.forEach(d=>{const A=pos[d],g=RQ[DEP[d][1]][3];h+=`<g class="n ${sel==d?"sel":""}" data-id="${d}"><rect x="${A[0]}" y="${A[1]}" width="${A[2]}" height="${A[3]}" rx="6" fill="${g?"#ffd9bf":"#d3ecd9"}"/><text x="${A[0]+85}" y="${A[1]+21}" text-anchor="middle" style="fill:#1c2733">${DEP[d][0]}</text></g>`});
  h+=`<text x="20" y="22" style="font-weight:600">Regulation</text><text x="270" y="14" style="font-weight:600">BRD requirements</text><text x="440" y="26" style="font-weight:600">Depends on</text>`;
  s.innerHTML=h;
  s.querySelectorAll(".n").forEach(n=>n.onclick=()=>{sel=n.dataset.id;draw();panel()});
