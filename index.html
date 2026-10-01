@@ -34,19 +34,20 @@ th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;white-
  <button data-m="truth" class="on">Planted gaps (answer key)</button>
  <button data-m="pipe">Pipeline result (both LLM checks agree)</button>
 </div>
+<div class="row" id="runs"><button data-r="1" class="on">LLM run 1</button><button data-r="2">LLM run 2</button></div>
 <div class="legend" id="legend"></div>
 <div class="card" style="padding:6px"><svg id="g" viewBox="0 0 620 560" role="img" aria-label="Knowledge graph"></svg></div>
 <div class="card" id="panel" style="margin-top:10px"><span class="sub">Select a requirement, clause or dependency.</span></div>
 
 <h2>How each method scored (14 requirements, 10 with planted gaps)</h2>
 <div class="scroll"><table id="res"></table></div>
-<p class="note">Combining two checks that make different mistakes raised precision without losing recall on this set.</p>
+<p class="note">The same notebook was run twice. The individual LLM checks varied (the clarification check flagged 12 requirements in run 1 and all 14 in run 2), while requiring agreement gave precision 0.91 and recall 1.00 both times. In run 2 the agreement result was identical to the extraction-based check alone. Use the run buttons above to compare.</p>
 
 <h2>Method matrix</h2>
 <div class="scroll"><table id="mx"></table></div>
 
 <h2>Read this first</h2>
-<p class="note">The regulation, BRD, internal systems and answer key are synthetic and were written for this prototype. Extraction rules and prompts were tuned on these same 14 requirements, so scores are optimistic and show that the method works end to end, not its accuracy on real documents. LLM steps used a hosted open-weight model. A requirement can be flagged for a different reason than the planted one. Internal-source suggestions come from a small synthetic document set.</p>
+<p class="note">The regulation, BRD, internal systems and answer key are synthetic and were written for this prototype. Extraction rules and prompts were tuned on these same 14 requirements, so scores are optimistic and show that the method works end to end, not its accuracy on real documents. LLM steps used a hosted open-weight model and vary between runs. A requirement can be flagged for a different reason than the planted one. Internal-source suggestions come from a small synthetic document set.</p>
 </main>
 <script>
 const CL={R1:"Submit a Position Report daily by 18:00 UTC for each open position in a Reportable Instrument.",R2:"Reportable Instrument means a derivative contract listed in Annex I.",R3:"Report shall include counterparty LEI, notional amount, valuation, trade date.",R4:"Valuation shall be mark-to-market at end-of-day close.",R5:"Notional expressed in EUR, converted at the ECB reference rate.",R6:"Corrections shall be resubmitted within 1 business day of error discovery.",R7:"Reports shall be submitted in XML per the schema published by the regulator."};
@@ -68,7 +69,11 @@ B13:["Aggregate positions by counterparty before reporting.","R3","regulatory",1
 B14:["Populate trade date in ISO format.","R3","regulatory",0,0,1,1,1,"Where is the date stored (which column or field)?","—"]};
 const DEP={D1:["Product→Annex I mapping","B2"],D2:["Counterparty LEI","B3"],D3:["Notional EUR","B4"],D4:["ECB reference rate","B4"],D5:["EOD market price","B5"],D6:["Business day calendar","B7"],D7:["Gateway XML schema v2.1","B8"],D8:["Legacy Mapping Table","B9"],D9:["Trade date","B12"]};
 const rq=Object.keys(RQ),cl=Object.keys(CL),dp=Object.keys(DEP);
-const both=r=>RQ[r][5]&&RQ[r][6], rules=r=>RQ[r][4];
+let run=1;
+// run 2 (second execution of the notebook): extraction flagged the planted gaps plus B14; clarification and derivability flagged every requirement
+const ex2=r=>(RQ[r][3]||r=="B14")?1:0, cq2=r=>1;
+const ex=r=>run==1?RQ[r][5]:ex2(r), cq=r=>run==1?RQ[r][6]:cq2(r);
+const both=r=>ex(r)&&cq(r), rules=r=>RQ[r][4];
 const col={gap:"var(--gap)",ok:"var(--ok)",fp:"var(--fp)",miss:"var(--miss)"};
 let mode="truth",sel=null;
 function status(r){const g=RQ[r][3];if(mode=="truth")return g?"gap":"ok";const f=both(r);return f&&g?"gap":f&&!g?"fp":!f&&g?"miss":"ok"}
@@ -97,14 +102,16 @@ function panel(){
  if(DEP[sel])return p.innerHTML=`<b>${DEP[sel][0]}</b><p>A dependency of ${DEP[sel][1]}. In the planted key it is ${RQ[DEP[sel][1]][3]?"missing a source or definition":"sourced"}.</p>`;
  const d=RQ[sel];
  p.innerHTML=`<b>${sel}</b> · ${d[2]} · ${d[3]?"planted gap":"clean"}<p>${d[0]}</p>
- <div>${chip("Rules",d[4])}${chip("Extraction check",d[5])}${chip("Clarification check",d[6])}${chip("Derivability list",d[7])}</div>
+ <div>${chip("Rules",d[4])}${chip("Extraction check (run "+run+")",ex(sel))}${chip("Clarification check (run "+run+")",cq(sel))}${chip("Derivability list",d[7])}</div>
  <p><b>Question for an expert:</b> ${d[8]||"<span class='sub'>none raised</span>"}</p><p><b>Where to look:</b> ${d[9]}</p>`;
 }
 document.querySelectorAll("#modes button").forEach(b=>b.onclick=()=>{mode=b.dataset.m;document.querySelectorAll("#modes button").forEach(x=>x.classList.toggle("on",x==b));draw()});
+document.querySelectorAll("#runs button").forEach(b=>b.onclick=()=>{run=+b.dataset.r;document.querySelectorAll("#runs button").forEach(x=>x.classList.toggle("on",x==b));draw();panel()});
 // results
-const M=[["Flag every requirement (baseline)",.71,1,14],["LLM: list of missing knowledge",.71,1,14],["Extraction-based check",.83,1,12],["LLM: needs-clarification check",.83,1,12],["Either of the two",.77,1,13],["Both of the two agree",.91,1,11]];
-document.getElementById("res").innerHTML="<tr><th>Method</th><th>Flagged</th><th>Precision</th><th></th><th>Recall</th></tr>"+M.map((m,i)=>`<tr class="${i==5?"best":""}"><td>${m[0]}</td><td>${m[3]}</td><td>${m[1].toFixed(2)}</td><td><span class="bar" style="width:${m[1]*100}px"></span></td><td>${m[2].toFixed(2)}</td></tr>`).join("");
+const M=[["Flag every requirement (baseline)",14,.71,14,.71],["LLM: list of missing knowledge",14,.71,14,.71],["Extraction-based check",12,.83,11,.91],["LLM: needs-clarification check",12,.83,14,.71],["Either of the two",13,.77,14,.71],["Both of the two agree",11,.91,11,.91]];
+document.getElementById("res").innerHTML="<tr><th>Method</th><th>Run 1 flagged</th><th>Run 1 precision</th><th>Run 2 flagged</th><th>Run 2 precision</th><th></th><th>Recall (both runs)</th></tr>"+M.map((m,i)=>`<tr class="${i==5?"best":""}"><td>${m[0]}</td><td>${m[1]}</td><td>${m[2].toFixed(2)}</td><td>${m[3]}</td><td>${m[4].toFixed(2)}</td><td><span class="bar" style="width:${Math.min(m[2],m[4])*100}px"></span></td><td>1.00</td></tr>`).join("");
 // matrix
-document.getElementById("mx").innerHTML="<tr><th>Req</th><th>Key</th><th>Rules</th><th>Extraction</th><th>Clarify</th><th>Derivability</th><th>Both agree</th></tr>"+rq.map(r=>{const d=RQ[r],c=v=>v?"●":"·";return `<tr><td>${r}</td><td>${d[3]?"gap":"clean"}</td><td>${c(d[4])}</td><td>${c(d[5])}</td><td>${c(d[6])}</td><td>${c(d[7])}</td><td>${c(both(r))}</td></tr>`}).join("");
+const c=v=>v?"●":"·";
+document.getElementById("mx").innerHTML="<tr><th>Req</th><th>Key</th><th>Rules</th><th>Extraction r1</th><th>Extraction r2</th><th>Clarify r1</th><th>Clarify r2</th><th>Both r1</th><th>Both r2</th></tr>"+rq.map(r=>{const d=RQ[r];return `<tr><td>${r}</td><td>${d[3]?"gap":"clean"}</td><td>${c(d[4])}</td><td>${c(d[5])}</td><td>${c(ex2(r))}</td><td>${c(d[6])}</td><td>${c(cq2(r))}</td><td>${c(d[5]&&d[6])}</td><td>${c(ex2(r)&&cq2(r))}</td></tr>`}).join("");
 draw();
 </script></body></html>
