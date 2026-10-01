@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BRD Knowledge Gap Explorer</title>
+<style>
+:root{--bg:#fff;--fg:#1c2733;--mut:#5c6b7a;--card:#f4f6f9;--line:#c9d2dc;--gap:#e6550d;--ok:#4caf7a;--fp:#c62828;--miss:#7e57c2;--cl:#8fb8de}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#10161d;--fg:#e6ebf0;--mut:#9aa8b6;--card:#19222c;--line:#33414f}}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Calibri,sans-serif;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+main{max-width:980px;margin:auto;padding:16px}
+h1{font-size:1.5rem;margin:.2em 0}h2{font-size:1.1rem;margin:1.6em 0 .5em}
+.sub{color:var(--mut)}.card{background:var(--card);border-radius:10px;padding:12px 14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+button{border:1px solid var(--line);background:var(--card);color:var(--fg);padding:6px 12px;border-radius:16px;font:inherit;cursor:pointer}
+button.on{background:var(--fg);color:var(--bg)}
+.legend span{display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:.85rem}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+svg{width:100%;height:auto;display:block}
+.n{cursor:pointer}.n rect{stroke:var(--line);stroke-width:1.2}.n.sel rect{stroke:var(--fg);stroke-width:3}
+text{fill:var(--fg);font-size:11px;pointer-events:none}
+.edge{stroke:var(--line);stroke-width:1.2;fill:none}.edge.hl{stroke:var(--fg);stroke-width:2}
+.chip{display:inline-block;padding:1px 9px;border-radius:10px;font-size:.8rem;margin:2px 4px 2px 0;border:1px solid var(--line)}
+.chip.y{background:var(--gap);color:#fff;border-color:var(--gap)}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;white-space:nowrap}
+.bar{height:8px;background:var(--cl);border-radius:4px;display:inline-block;vertical-align:middle}
+.best td{font-weight:600}
+.note{font-size:.85rem;color:var(--mut)}
+</style></head><body><main>
+<h1>BRD Knowledge Gap Explorer</h1>
+<p class="sub">A knowledge graph linking regulation clauses, BRD requirements and what each requirement depends on. It flags requirements whose needed knowledge is written in neither document, and suggests where to look. Tap any node.</p>
+
+<div class="row" id="modes">
+ <button data-m="truth" class="on">Planted gaps (answer key)</button>
+ <button data-m="pipe">Pipeline result (both LLM checks agree)</button>
+</div>
+<div class="legend" id="legend"></div>
+<div class="card" style="padding:6px"><svg id="g" viewBox="0 0 620 560" role="img" aria-label="Knowledge graph"></svg></div>
+<div class="card" id="panel" style="margin-top:10px"><span class="sub">Select a requirement, clause or dependency.</span></div>
+
+<h2>How each method scored (14 requirements, 10 with planted gaps)</h2>
+<div class="scroll"><table id="res"></table></div>
+<p class="note">Combining two checks that make different mistakes raised precision without losing recall on this set.</p>
+
+<h2>Method matrix</h2>
+<div class="scroll"><table id="mx"></table></div>
+
+<h2>Read this first</h2>
+<p class="note">The regulation, BRD, internal systems and answer key are synthetic and were written for this prototype. Extraction rules and prompts were tuned on these same 14 requirements, so scores are optimistic and show that the method works end to end, not its accuracy on real documents. LLM steps used a hosted open-weight model. A requirement can be flagged for a different reason than the planted one. Internal-source suggestions come from a small synthetic document set.</p>
+</main>
+<script>
+const CL={R1:"Submit a Position Report daily by 18:00 UTC for each open position in a Reportable Instrument.",R2:"Reportable Instrument means a derivative contract listed in Annex I.",R3:"Report shall include counterparty LEI, notional amount, valuation, trade date.",R4:"Valuation shall be mark-to-market at end-of-day close.",R5:"Notional expressed in EUR, converted at the ECB reference rate.",R6:"Corrections shall be resubmitted within 1 business day of error discovery.",R7:"Reports shall be submitted in XML per the schema published by the regulator."};
+// id:[text, clause, provenance, gap?, ruleFlag, slotLLM, clarifyLLM, derivLLM, question, source]
+const RQ={
+B1:["Generate daily Position Report by 17:30 UTC (30-min buffer for gateway retries).","R1","interpreted",0,0,1,0,1,"","—"],
+B2:["Include only positions in products classified as Reportable Product.","R2","regulatory",1,1,1,1,1,"Is 'Reportable Product' the same as Reportable Instrument, and where is the classification list maintained?","Product catalogue"],
+B3:["Populate counterparty LEI from Counterparty Master.","R3","regulatory",0,0,0,1,1,"What are the source, schema and access method of the Counterparty Master?","Data dictionary"],
+B4:["Calculate notional in EUR using ECB reference rate.","R5","regulatory",1,1,1,1,1,"Which ECB rate, from which source, and for which date?","Market-data platform spec / reporting spreadsheet"],
+B5:["Populate valuation using end-of-day mark-to-market price.","R4","regulatory",1,1,1,1,1,"What is the source of the end-of-day price and where is it stored?","Market-data platform spec"],
+B6:["Exclude intra-group trades from reporting.","—","business-added",1,1,1,1,1,"How is an intra-group trade defined and where does group-membership data come from?","Compliance memo"],
+B7:["Support correction resubmission within 1 business day.","R6","regulatory",1,1,1,1,1,"How is a business day defined and how is error-discovery time captured?","Business-day calendar service"],
+B8:["Submit via Regulator Gateway using XML schema v2.1.","R7","interpreted",1,1,1,1,1,"Which schema version applies and who owns the gateway specification?","Gateway integration spec"],
+B9:["Map legacy TradeVault trades via Legacy Mapping Table.","—","business-added",1,1,1,1,1,"Which fields and rules does the Legacy Mapping Table define, and where is it kept?","Legacy migration notes"],
+B10:["Report only positions above the materiality threshold.","R1","regulatory",1,0,1,1,1,"What is the definition, value or method of the materiality threshold?","Reporting policy"],
+B11:["Round values using standard house rounding as per current practice.","R5","regulatory",1,0,1,1,1,"Which rounding method and how many decimal places?","Reporting conventions"],
+B12:["Populate trade date from the Trade Booking System.","R3","regulatory",0,0,0,0,1,"","—"],
+B13:["Aggregate positions by counterparty before reporting.","R3","regulatory",1,0,1,1,1,"Which aggregation logic and which fields?","Existing reporting logic (not routed)"],
+B14:["Populate trade date in ISO format.","R3","regulatory",0,0,1,1,1,"Where is the date stored (which column or field)?","—"]};
+const DEP={D1:["Product→Annex I mapping","B2"],D2:["Counterparty LEI","B3"],D3:["Notional EUR","B4"],D4:["ECB reference rate","B4"],D5:["EOD market price","B5"],D6:["Business day calendar","B7"],D7:["Gateway XML schema v2.1","B8"],D8:["Legacy Mapping Table","B9"],D9:["Trade date","B12"]};
+const rq=Object.keys(RQ),cl=Object.keys(CL),dp=Object.keys(DEP);
+const both=r=>RQ[r][5]&&RQ[r][6], rules=r=>RQ[r][4];
+const col={gap:"var(--gap)",ok:"var(--ok)",fp:"var(--fp)",miss:"var(--miss)"};
+let mode="truth",sel=null;
+function status(r){const g=RQ[r][3];if(mode=="truth")return g?"gap":"ok";const f=both(r);return f&&g?"gap":f&&!g?"fp":!f&&g?"miss":"ok"}
+const pos={};cl.forEach((c,i)=>pos[c]=[20,40+i*70,60,30]);rq.forEach((r,i)=>pos[r]=[270,25+i*37,70,28]);dp.forEach((d,i)=>pos[d]=[440,40+i*55,170,34]);
+function draw(){
+ const s=document.getElementById("g");let h="";
+ const E=[];rq.forEach(r=>{const c=RQ[r][1];if(c!="—")E.push([r,c]);});dp.forEach(d=>E.push([DEP[d][1],d]));
+ E.forEach(([a,b])=>{const A=pos[a],B=pos[b];const hl=sel&&(sel==a||sel==b);
+  const ax=A[0]<B[0]?A[0]+A[2]:A[0],bx=A[0]<B[0]?B[0]:B[0]+B[2];
+  h+=`<path class="edge ${hl?"hl":""}" d="M${ax} ${A[1]+A[3]/2} C${(ax+bx)/2} ${A[1]+A[3]/2},${(ax+bx)/2} ${B[1]+B[3]/2},${bx} ${B[1]+B[3]/2}"/>`;});
+ // edges between requirement and clause point right-to-left; fix by drawing clause->req
+ cl.forEach(c=>{const A=pos[c];h+=`<g class="n ${sel==c?"sel":""}" data-id="${c}"><rect x="${A[0]}" y="${A[1]}" width="${A[2]}" height="${A[3]}" rx="6" fill="var(--cl)"/><text x="${A[0]+30}" y="${A[1]+19}" text-anchor="middle">${c}</text></g>`});
+ rq.forEach(r=>{const A=pos[r];h+=`<g class="n ${sel==r?"sel":""}" data-id="${r}"><rect x="${A[0]}" y="${A[1]}" width="${A[2]}" height="${A[3]}" rx="6" fill="${col[status(r)]}"/><text x="${A[0]+35}" y="${A[1]+18}" text-anchor="middle" style="fill:#fff;font-weight:600">${r}</text></g>`});
+ dp.forEach(d=>{const A=pos[d],g=RQ[DEP[d][1]][3];h+=`<g class="n ${sel==d?"sel":""}" data-id="${d}"><rect x="${A[0]}" y="${A[1]}" width="${A[2]}" height="${A[3]}" rx="6" fill="${g?"#ffd9bf":"#d3ecd9"}"/><text x="${A[0]+85}" y="${A[1]+21}" text-anchor="middle">${DEP[d][0]}</text></g>`});
+ h+=`<text x="20" y="22" style="font-weight:600">Regulation</text><text x="270" y="14" style="font-weight:600">BRD requirements</text><text x="440" y="26" style="font-weight:600">Depends on</text>`;
+ s.innerHTML=h;
+ s.querySelectorAll(".n").forEach(n=>n.onclick=()=>{sel=n.dataset.id;draw();panel()});
+ document.getElementById("legend").innerHTML=mode=="truth"?
+  `<span><i style="background:${col.gap}"></i>planted gap</span><span><i style="background:${col.ok}"></i>clean</span><span><i style="background:var(--cl)"></i>clause</span>`:
+  `<span><i style="background:${col.gap}"></i>flagged, real gap</span><span><i style="background:${col.fp}"></i>flagged, clean (false alarm)</span><span><i style="background:${col.miss}"></i>missed</span><span><i style="background:${col.ok}"></i>clean, not flagged</span>`;
+}
+function chip(l,v){return `<span class="chip ${v?"y":""}">${l}: ${v?"flags":"no"}</span>`}
+function panel(){
+ const p=document.getElementById("panel");if(!sel)return;
+ if(CL[sel])return p.innerHTML=`<b>Clause ${sel}</b><p>${CL[sel]}</p><span class="sub">Implemented by: ${rq.filter(r=>RQ[r][1]==sel).join(", ")||"no requirement"}</span>`;
+ if(DEP[sel])return p.innerHTML=`<b>${DEP[sel][0]}</b><p>A dependency of ${DEP[sel][1]}. In the planted key it is ${RQ[DEP[sel][1]][3]?"missing a source or definition":"sourced"}.</p>`;
+ const d=RQ[sel];
+ p.innerHTML=`<b>${sel}</b> · ${d[2]} · ${d[3]?"planted gap":"clean"}<p>${d[0]}</p>
+ <div>${chip("Rules",d[4])}${chip("Extraction check",d[5])}${chip("Clarification check",d[6])}${chip("Derivability list",d[7])}</div>
+ <p><b>Question for an expert:</b> ${d[8]||"<span class='sub'>none raised</span>"}</p><p><b>Where to look:</b> ${d[9]}</p>`;
+}
+document.querySelectorAll("#modes button").forEach(b=>b.onclick=()=>{mode=b.dataset.m;document.querySelectorAll("#modes button").forEach(x=>x.classList.toggle("on",x==b));draw()});
+// results
+const M=[["Flag every requirement (baseline)",.71,1,14],["LLM: list of missing knowledge",.71,1,14],["Extraction-based check",.83,1,12],["LLM: needs-clarification check",.83,1,12],["Either of the two",.77,1,13],["Both of the two agree",.91,1,11]];
+document.getElementById("res").innerHTML="<tr><th>Method</th><th>Flagged</th><th>Precision</th><th></th><th>Recall</th></tr>"+M.map((m,i)=>`<tr class="${i==5?"best":""}"><td>${m[0]}</td><td>${m[3]}</td><td>${m[1].toFixed(2)}</td><td><span class="bar" style="width:${m[1]*100}px"></span></td><td>${m[2].toFixed(2)}</td></tr>`).join("");
+// matrix
+document.getElementById("mx").innerHTML="<tr><th>Req</th><th>Key</th><th>Rules</th><th>Extraction</th><th>Clarify</th><th>Derivability</th><th>Both agree</th></tr>"+rq.map(r=>{const d=RQ[r],c=v=>v?"●":"·";return `<tr><td>${r}</td><td>${d[3]?"gap":"clean"}</td><td>${c(d[4])}</td><td>${c(d[5])}</td><td>${c(d[6])}</td><td>${c(d[7])}</td><td>${c(both(r))}</td></tr>`}).join("");
+draw();
+</script></body></html>
